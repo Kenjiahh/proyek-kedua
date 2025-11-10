@@ -28,6 +28,10 @@ window.addEventListener('DOMContentLoaded', () => {
       }
     };
   });
+  // Try auto subscribe to push if VAPID key provided
+  if (CONFIG.VAPID_PUBLIC_KEY && Notification?.permission !== 'denied') {
+    subscribePush(CONFIG.VAPID_PUBLIC_KEY).catch(() => {});
+  }
 });
 
 // Handle hash change for SPA navigation
