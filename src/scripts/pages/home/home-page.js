@@ -1,6 +1,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import StoryAPI from '../../data/api';
+import { clearStories, getAllStories as getCachedStories } from '../../data/idb';
 
 class HomePage {
   constructor() {
@@ -14,6 +15,10 @@ class HomePage {
     return `
       <div class="home-container">
         ${isLoggedIn ? `
+          <div class="stories-actions" style="display:flex;gap:10px;margin:10px 0;">
+            <button id="btnRefreshStories" class="btn-primary" type="button">Refresh Stories</button>
+            <button id="btnClearCache" class="btn-secondary" type="button">Clear Cached Stories</button>
+          </div>
           <div id="map" class="map-container"></div>
           <div class="stories-section">
             <h2>Latest Stories</h2>
@@ -43,6 +48,23 @@ class HomePage {
 
     try {
       await this._loadStories();
+      // Wire action buttons
+      const refreshBtn = document.getElementById('btnRefreshStories');
+      const clearBtn = document.getElementById('btnClearCache');
+      refreshBtn?.addEventListener('click', async () => {
+        const container = document.getElementById('storiesContainer');
+        container.innerHTML = '<div class="loading-indicator"><span>Refreshing...</span></div>';
+        await this._loadStories(true);
+      });
+      clearBtn?.addEventListener('click', async () => {
+        await clearStories();
+        const container = document.getElementById('storiesContainer');
+        container.innerHTML = `
+          <div class="empty-state">
+            <p>Local cache cleared.</p>
+          </div>
+        `;
+      });
       
       // Wait a bit for DOM to be ready
       setTimeout(() => {
@@ -132,12 +154,27 @@ class HomePage {
     });
   }
 
-  async _loadStories() {
+  async _loadStories(forceServer = false) {
     try {
-      const response = await StoryAPI.getAllStories();
-      this.stories = response.listStory;
+      let list = null;
+      if (forceServer) {
+        const response = await StoryAPI.getAllStories();
+        list = response.listStory;
+      } else {
+        // try server first; if fails, throw to catch and load cache
+        const response = await StoryAPI.getAllStories();
+        list = response.listStory;
+      }
+      this.stories = list;
       this._displayStories(this.stories);
     } catch (error) {
+      // on failure, use cache
+      const cached = await getCachedStories();
+      if (cached && cached.length > 0) {
+        this.stories = cached;
+        this._displayStories(this.stories);
+        return;
+      }
       throw new Error(`Failed to load stories: ${error.message}`);
     }
   }
