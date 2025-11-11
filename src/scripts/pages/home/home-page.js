@@ -21,14 +21,13 @@ class HomePage {
         ${isLoggedIn ? `
           <div class="stories-actions" style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap;">
             <button id="btnRefreshStories" class="btn-primary" type="button">Refresh Stories</button>
-            <button id="btnClearCache" class="btn-secondary" type="button">Clear Cached Stories</button>
             <button id="btnToggleNotification" class="btn-secondary" type="button">Enable Notifications</button>
             <button id="btnTestNotification" class="btn-secondary" type="button" title="Send test notification">📢 Test Notification</button>
           </div>
 
-          <div class="view-tabs" style="display:flex;gap:10px;margin:15px 0;border-bottom:2px solid #ddd;">
-            <button id="btnStoriesView" class="tab-button tab-active" type="button" style="padding:10px 20px;background:none;border:none;font-size:16px;cursor:pointer;border-bottom:3px solid #007bff;">All Stories</button>
-            <button id="btnSavedView" class="tab-button" type="button" style="padding:10px 20px;background:none;border:none;font-size:16px;cursor:pointer;border-bottom:3px solid transparent;">Saved Stories</button>
+                    <div class="view-tabs" style="display:flex;gap:10px;margin:15px 0;border-bottom:2px solid #ddd;">
+            <button id="btnStoriesView" class="tab-button tab-active" type="button" style="padding:10px 20px;background:none;border:none;font-size:16px;cursor:pointer;border-bottom:3px solid #007bff;color:#007bff;font-weight:500;">All Stories</button>
+            <button id="btnSavedView" class="tab-button" type="button" style="padding:10px 20px;background:none;border:none;font-size:16px;cursor:pointer;border-bottom:3px solid transparent;color:#666;font-weight:500;">Saved Stories</button>
           </div>
 
           <div id="map" class="map-container"></div>
@@ -73,16 +72,6 @@ class HomePage {
         const container = document.getElementById('storiesContainer');
         container.innerHTML = '<div class="loading-indicator"><span>Refreshing...</span></div>';
         await this._loadStories(true);
-      });
-      
-      clearBtn?.addEventListener('click', async () => {
-        await clearStories();
-        const container = document.getElementById('storiesContainer');
-        container.innerHTML = `
-          <div class="empty-state">
-            <p>Local cache cleared.</p>
-          </div>
-        `;
       });
 
       // Tab switching
@@ -165,7 +154,7 @@ class HomePage {
     }
   }
 
-  _switchView() {
+    _switchView() {
     const storiesViewBtn = document.getElementById('btnStoriesView');
     const savedViewBtn = document.getElementById('btnSavedView');
     const mapElement = document.getElementById('map');
@@ -175,10 +164,14 @@ class HomePage {
       if (storiesViewBtn) {
         storiesViewBtn.classList.add('tab-active');
         storiesViewBtn.style.borderBottom = '3px solid #007bff';
+        storiesViewBtn.style.color = '#007bff';
+        storiesViewBtn.style.fontWeight = '600';
       }
       if (savedViewBtn) {
         savedViewBtn.classList.remove('tab-active');
         savedViewBtn.style.borderBottom = '3px solid transparent';
+        savedViewBtn.style.color = '#999';
+        savedViewBtn.style.fontWeight = '400';
       }
       if (mapElement) mapElement.style.display = 'block';
       if (sectionTitle) sectionTitle.textContent = 'Latest Stories';
@@ -187,13 +180,17 @@ class HomePage {
       if (storiesViewBtn) {
         storiesViewBtn.classList.remove('tab-active');
         storiesViewBtn.style.borderBottom = '3px solid transparent';
+        storiesViewBtn.style.color = '#999';
+        storiesViewBtn.style.fontWeight = '400';
       }
       if (savedViewBtn) {
         savedViewBtn.classList.add('tab-active');
-        savedViewBtn.style.borderBottom = '3px solid #007bff';
+        savedViewBtn.style.borderBottom = '3px solid #28a745';
+        savedViewBtn.style.color = '#28a745';
+        savedViewBtn.style.fontWeight = '600';
       }
       if (mapElement) mapElement.style.display = 'none';
-      if (sectionTitle) sectionTitle.textContent = 'Saved Stories';
+      if (sectionTitle) sectionTitle.textContent = '💾 Saved Stories';
       this._displaySavedStories(this.savedStories);
     }
   }
