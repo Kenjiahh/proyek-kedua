@@ -5,10 +5,12 @@ const API_ENDPOINT = {
   LOGIN: `${CONFIG.BASE_URL}/login`,
   STORIES: `${CONFIG.BASE_URL}/stories`,
   ADD_STORY: `${CONFIG.BASE_URL}/stories`,
+  SUBSCRIBE: `${CONFIG.BASE_URL}/notifications/subscribe`,
+  UNSUBSCRIBE: `${CONFIG.BASE_URL}/notifications/unsubscribe`,
 };
 
 class StoryAPI {
-  static async _fetchWithTimeout(url, options = {}, timeout = 8000) {
+  static async _fetchWithTimeout(url, options = {}, timeout = 30000) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -254,6 +256,254 @@ class StoryAPI {
 
   static removeToken() {
     localStorage.removeItem('token');
+  }
+
+  static async subscribeToNotifications() {
+    try {
+      // Check if service worker is registered
+      if (!('serviceWorker' in navigator)) {
+        throw new Error('Service Worker not supported');
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+
+      // Request permission
+      if (Notification.permission === 'denied') {
+        throw new Error('Notification permission denied');
+      }
+
+      if (Notification.permission !== 'granted') {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          throw new Error('Notification permission not granted');
+        }
+      }
+
+      // Get push subscription
+      let subscription = await registration.pushManager.getSubscription();
+      
+      if (!subscription) {
+        // Get public VAPID key from config
+        const vapidPublicKey = CONFIG.VAPID_PUBLIC_KEY;
+        if (!vapidPublicKey) {
+          throw new Error('VAPID public key not configured');
+        }
+
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: this._urlBase64ToUint8Array(vapidPublicKey),
+        });
+      }
+
+      // Send subscription to backend
+      const token = this.getToken();
+      if (!token) {
+        throw new Error('User not authenticated');
+      }
+
+      // Convert subscription to plain object and remove expirationTime
+      const subscriptionData = {
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: subscription.getKey ? subscription.getKey('p256dh') : null,
+          auth: subscription.getKey ? subscription.getKey('auth') : null,
+        },
+      };
+
+      // Convert keys to base64 strings
+      if (subscriptionData.keys.p256dh) {
+        if (subscriptionData.keys.p256dh instanceof ArrayBuffer) {
+          subscriptionData.keys.p256dh = this._arrayBufferToBase64(subscriptionData.keys.p256dh);
+        } else if (subscriptionData.keys.p256dh instanceof Uint8Array) {
+          subscriptionData.keys.p256dh = this._arrayBufferToBase64(subscriptionData.keys.p256dh);
+        } else if (typeof subscriptionData.keys.p256dh !== 'string') {
+          subscriptionData.keys.p256dh = this._arrayBufferToBase64(new Uint8Array(subscriptionData.keys.p256dh));
+        }
+      }
+
+      if (subscriptionData.keys.auth) {
+        if (subscriptionData.keys.auth instanceof ArrayBuffer) {
+          subscriptionData.keys.auth = this._arrayBufferToBase64(subscriptionData.keys.auth);
+        } else if (subscriptionData.keys.auth instanceof Uint8Array) {
+          subscriptionData.keys.auth = this._arrayBufferToBase64(subscriptionData.keys.auth);
+        } else if (typeof subscriptionData.keys.auth !== 'string') {
+          subscriptionData.keys.auth = this._arrayBufferToBase64(new Uint8Array(subscriptionData.keys.auth));
+        }
+      }
+
+      const response = await this._fetchWithTimeout(
+        API_ENDPOINT.SUBSCRIBE,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify(subscriptionData),
+        }
+      );
+
+      const responseJson = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseJson.message || 'Failed to subscribe to notifications');
+      }
+
+      console.log('Successfully subscribed to notifications');
+      localStorage.setItem('notificationSubscribed', 'true');
+      return responseJson;
+    } catch (error) {
+      console.error('Subscription error:', error);
+      throw error;
+    }
+  }
+
+  static async unsubscribeFromNotifications() {
+    try {
+      if (!('serviceWorker' in navigator)) {
+        throw new Error('Service Worker not supported');
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        console.log('No subscription to unsubscribe from');
+        localStorage.removeItem('notificationSubscribed');
+        return;
+      }
+
+      // Unsubscribe from push manager (this always works locally)
+      await subscription.unsubscribe();
+      console.log('Unsubscribed from push manager');
+
+      // Try to notify backend, but don't fail if it does (CORS might block it)
+      const token = this.getToken();
+      if (token) {
+        try {
+          await this._fetchWithTimeout(
+            API_ENDPOINT.UNSUBSCRIBE,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                endpoint: subscription.endpoint,
+                keys: {
+                  p256dh: subscription.getKey ? subscription.getKey('p256dh') : null,
+                  auth: subscription.getKey ? subscription.getKey('auth') : null,
+                },
+              }),
+            },
+            5000 // Shorter timeout for unsubscribe
+          );
+          console.log('Backend notified of unsubscription');
+        } catch (backendError) {
+          // Log but don't fail - user is unsubscribed locally even if backend fails
+          console.warn('Could not notify backend of unsubscription (this is OK):', backendError.message);
+        }
+      }
+
+      localStorage.removeItem('notificationSubscribed');
+      console.log('Successfully unsubscribed from notifications');
+    } catch (error) {
+      console.error('Unsubscription error:', error);
+      throw error;
+    }
+  }
+
+  static _urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding)
+      .replace(/\-/g, '+')
+      .replace(/_/g, '/');
+
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  static _arrayBufferToBase64(buffer) {
+    if (!buffer) return null;
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary);
+  }
+
+  // Test helper - Send test notification via service worker
+  static async sendTestNotification() {
+    try {
+      if (!('serviceWorker' in navigator)) {
+        throw new Error('Service Worker not supported');
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+
+      // Simulate push notification
+      const testData = {
+        title: 'New Story Posted! 📖',
+        body: 'Check out the latest story from our community',
+        icon: '/favicon.png',
+        badge: '/favicon.png',
+        data: {
+          url: '/#/home',
+        },
+      };
+
+      registration.showNotification(testData.title, {
+        body: testData.body,
+        icon: testData.icon,
+        badge: testData.badge,
+        data: testData.data,
+      });
+
+      console.log('Test notification sent');
+    } catch (error) {
+      console.error('Test notification error:', error);
+      throw error;
+    }
+  }
+
+  // Send notification for a new story
+  static async sendNotificationForNewStory(story) {
+    try {
+      if (!('serviceWorker' in navigator)) {
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+
+      const notificationData = {
+        title: `📖 New Story by ${story.name}!`,
+        body: story.description.substring(0, 100) + (story.description.length > 100 ? '...' : ''),
+        icon: '/favicon.png',
+        badge: '/favicon.png',
+        data: {
+          url: '/#/home',
+          storyId: story.id,
+        },
+      };
+
+      registration.showNotification(notificationData.title, {
+        body: notificationData.body,
+        icon: notificationData.icon,
+        badge: notificationData.badge,
+        data: notificationData.data,
+      });
+
+      console.log('New story notification sent for:', story.name);
+    } catch (error) {
+      console.error('Error sending new story notification:', error);
+    }
   }
 }
 

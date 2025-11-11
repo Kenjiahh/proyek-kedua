@@ -1,4 +1,5 @@
 import StoryAPI from '../../data/api';
+import { putStories } from '../../data/idb';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -118,12 +119,25 @@ class AddStoryPage {
             ? photoInput.files[0] 
             : null;
           
-          await StoryAPI.addStory({
+          const result = await StoryAPI.addStory({
             description: formData.get('description'),
             photo: photoFile,
             lat: this.selectedLocation ? this.selectedLocation.lat : null,
             lon: this.selectedLocation ? this.selectedLocation.lon : null,
           });
+
+          // Cache the new story to IndexedDB
+          try {
+            // Fetch updated stories and cache them
+            const updatedStories = await StoryAPI.getAllStories();
+            if (updatedStories && updatedStories.listStory) {
+              await putStories(updatedStories.listStory);
+              console.log('New story cached to IndexedDB');
+            }
+          } catch (cacheError) {
+            console.warn('Failed to cache story:', cacheError);
+            // Don't fail the operation if caching fails
+          }
 
           window.location.hash = '#/';
         } catch (error) {
